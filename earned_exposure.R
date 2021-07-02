@@ -1,97 +1,121 @@
-# Earned Exposure
+############################### EARNED EXPOSURE ################################
 
 suppressMessages(library("tidyverse"))
 suppressMessages(library("lubridate"))
 
-# Calendar Year Earned Exposure Calculation
-
-# Inputs (policy transaction record):
-# Transaction start date,
-# transaction end date,
-# year of interest,
-# policy term length in years
-# Output:
-# Earned exposure
-
-# Calendar Year Earned Exposure Calculation
-calendar_year_earned_exposure_calculation <-
-  function (start_date, end_date, year_of_interest) {
-    first_day_of_year_of_interest <- ymd(str_c(year_of_interest,
-                                               "-01-01"))
-    first_day_of_next_year_of_interest <- ymd(str_c(year_of_interest + 1,
-                                                    "-01-01"))
-    days_in_year_of_interest <-
-      first_day_of_next_year_of_interest - first_day_of_year_of_interest
-    days_in_year_of_interest <- as.integer(days_in_year_of_interest)
-    if (start_date > end_date) {
+# Calendar Period Earned Exposure
+calendar_period_earned_exposure <-
+  function (transaction_start_date,
+            transaction_end_date,
+            calendar_period_start_date,
+            calendar_period_end_date) {
+    days_in_calendar_period <-
+      calendar_period_end_date - calendar_period_start_date
+    days_in_calendar_period <- days_in_calendar_period |>
+      as.integer()
+    if (transaction_start_date > transaction_end_date) {
       earned_days <- NA_real_
-    } else if ((start_date < first_day_of_year_of_interest &
-                end_date <= first_day_of_year_of_interest) |
-               (start_date >= first_day_of_next_year_of_interest &
-                end_date >= first_day_of_next_year_of_interest)) {
+    } else if ((transaction_start_date < calendar_period_start_date &
+                transaction_end_date <= calendar_period_start_date) |
+               (transaction_start_date >= calendar_period_end_date &
+                transaction_end_date >= calendar_period_end_date)) {
       earned_days <- 0
-    } else if (start_date <= first_day_of_year_of_interest &
-               end_date >= first_day_of_next_year_of_interest) {
+    } else if (transaction_start_date <= calendar_period_start_date &
+               transaction_end_date >= calendar_period_end_date) {
       earned_days <-
-        first_day_of_next_year_of_interest - first_day_of_year_of_interest
-    } else if (start_date >= first_day_of_year_of_interest &
-               end_date <= first_day_of_next_year_of_interest) {
-      earned_days <- end_date - start_date
-    } else if (start_date >= first_day_of_year_of_interest &
-               end_date > first_day_of_next_year_of_interest) {
-      earned_days <- first_day_of_next_year_of_interest - start_date
+        calendar_period_end_date -
+        calendar_period_start_date
+    } else if (transaction_start_date >= calendar_period_start_date &
+               transaction_end_date <= calendar_period_end_date) {
+      earned_days <-
+        transaction_end_date -
+        transaction_start_date
+    } else if (transaction_start_date >= calendar_period_start_date &
+               transaction_end_date > calendar_period_end_date) {
+      earned_days <-
+        calendar_period_end_date -
+        transaction_start_date
       
-    } else if (start_date < first_day_of_year_of_interest &
-               end_date < first_day_of_next_year_of_interest) {
-      earned_days <- end_date - first_day_of_year_of_interest
+    } else if (transaction_start_date < calendar_period_start_date &
+               transaction_end_date < calendar_period_end_date) {
+      earned_days <-
+        transaction_end_date -
+        calendar_period_start_date
     } else {
       stop("Dates don't make sense or function needs improvement")
     }
     earned_days <- as.integer(earned_days)
-    earned_exposure <- earned_days/days_in_year_of_interest
+    earned_exposure <- earned_days/days_in_calendar_period
     return(earned_exposure)
   }
 
-### TESTS
+# Example
+calendar_period_earned_exposure(
+  transaction_start_date=ymd("2015-03-17"),
+  transaction_end_date=ymd("2016-03-17"),
+  calendar_period_start_date=ymd("2015-01-01"),
+  calendar_period_end_date=ymd("2016-01-01")
+)
 
-calendar_year_earned_exposure_calculation(start_date=ymd("2014-03-17"),
-                                          end_date=ymd("2015-03-17"),
-                                          year_of_interest=2015L)
-# 31 + 28 + 16 days (75 days) / 365 days (0.2054795)
+# Earned Exposure Calculation
+earned_exposure_calculation <-
+  function (transactions,
+            calendar_period_start_date,
+            calendar_period_length_in_years,
+            number_of_calendar_periods) {
+    calendar_periods <-
+      calendar_period_start_date +
+      months(as.integer(calendar_period_length_in_years*12))*
+      seq(0L, number_of_calendar_periods, 1L)
+    calendar_periods <- tibble(
+      CalendarPeriodStartDate=
+        head(calendar_periods, length(calendar_periods) - 1),
+      CalendarPeriodEndDate=
+        tail(calendar_periods, length(calendar_periods) - 1)
+    )
+    transactions <- transactions %>%
+      expand_grid(calendar_periods) %>%
+      mutate(
+        EarnedExposure=
+          mapply(
+            FUN=calendar_period_earned_exposure,
+            transaction_start_date=TransactionStartDate,
+            transaction_end_date=TransactionEndDate,
+            calendar_period_start_date=CalendarPeriodStartDate,
+            calendar_period_end_date=CalendarPeriodEndDate
+          )
+      )
+    return(transactions)
+  }
 
-calendar_year_earned_exposure_calculation(start_date=ymd("2015-03-17"),
-                                          end_date=ymd("2015-03-17"),
-                                          year_of_interest=2015L)
-# 0 days / 365 days (0)
+######################## SIMULATED TRANSACTIONS EXAMPLE ########################
 
-calendar_year_earned_exposure_calculation(start_date=ymd("2014-03-17"),
-                                          end_date=ymd("2016-03-17"),
-                                          year_of_interest=2015L)
-# 365 days / 365 days (1)
+set.seed(394)
+unique_ids <- seq(from=1L, to=1000L, by=1L) |> as.character()
+transaction_start_dates <- sample(x=seq(from=ymd("2015-01-01"),
+                                        to=ymd("2015-12-31"),
+                                        by=1L),
+                                  size=1000L,
+                                  replace=TRUE)
+transaction_end_dates <-
+  transaction_start_dates +
+  days(sample(x=seq(from=0L, to=366L, by=1L), size=1000L, replace=TRUE))
+transactions <- tibble(
+  UniqueID=unique_ids,
+  TransactionStartDate=transaction_start_dates,
+  TransactionEndDate=transaction_end_dates
+)
+rm(unique_ids,
+   transaction_start_dates,
+   transaction_end_dates)
+transactions <- earned_exposure_calculation(
+  transactions=transactions,
+  calendar_period_start_date=ymd("2010-01-01"),
+  calendar_period_length_in_years=1L,
+  number_of_calendar_periods=10L
+)
+head(transactions, 20)
 
-calendar_year_earned_exposure_calculation(start_date=ymd("2014-03-17"),
-                                          end_date=ymd("2014-09-17"),
-                                          year_of_interest=2015L)
-# 0 days / 365 days (0)
+######################## SIMULATED TRANSACTIONS EXAMPLE ########################
 
-calendar_year_earned_exposure_calculation(start_date=ymd("2015-03-17"),
-                                          end_date=ymd("2015-09-17"),
-                                          year_of_interest=2015L)
-# (31 - 17 + 1) + 30 + 31 + 30 + 31 + 31 + 16 (184 days) / 365 days (0.5041096)
-
-calendar_year_earned_exposure_calculation(start_date=ymd("2015-03-17"),
-                                          end_date=ymd("2016-03-17"),
-                                          year_of_interest=2015L)
-# (31 - 17 + 1) + 30 + 31 + 30 + 31 + 31 + 30 + 31 + 30 + 31 (290 days)
-# / 365 days (0.7945205)
-
-### TESTS
-
-# Inputs:
-# policy term length in years
-
-# policy_term_length < 1
-# policy_term_length > 1
-# 0 < earned_exposure < 1
-
-# % of policy term earned
+############################### EARNED EXPOSURE ################################
